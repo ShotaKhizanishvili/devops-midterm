@@ -359,15 +359,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\health-check.ps1 `
 
 ![GitHub Actions pipeline](docs/screenshots/pipeline-success.png)
 
-GitHub Actions-ის გაშვება `main` ბრენჩზე: სამივე job — **Build → Test → Deploy** —
-მწვანეა და დალაგებულია თანმიმდევრობით (`needs`-ით). მარცხენა პანელზე ჩანს სამივე
-საფეხური, ქვემოთ კი — ატვირთული არტეფაქტები (`app`, `test-results`, `deployment-logs`).
+GitHub Actions-ის გაშვება `main` ბრენჩზე (merge-ის შემდეგ): სამივე job —
+**Build → Test → Deploy** — მწვანეა და დალაგებულია თანმიმდევრობით (`needs`-ით).
+სტატუსი **Success**, ხანგრძლივობა 2 წთ 7 წმ, ატვირთულია **3 არტეფაქტი**
+(`app`, `test-results`, `deployment-logs`).
 
 ### 7.2 წარმატებული იუნიტ ტესტები
 
 ![Unit tests](docs/screenshots/tests-passed.png)
 
-Test საფეხურის ლოგი: `dotnet test` ასრულებს **67 ტესტს** — 0 ჩავარდნილი.
+`dotnet test devops-midterm.sln`-ის ლოკალური გაშვება:
+**total: 67, failed: 0, succeeded: 67**. ზუსტად იგივე ბრძანება სრულდება
+პაიპლაინის Test საფეხურზეც (იხ. 7.1 — Test job მწვანეა).
 იტესტება როგორც სუფთა ლოგიკა (GPA-ის დათვლა, ვალიდაცია, ლოგის პარსინგი), ისე
 რეალური HTTP endpoint-ები in-memory სერვერზე.
 
