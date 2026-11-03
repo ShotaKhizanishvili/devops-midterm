@@ -235,7 +235,8 @@ function Start-AppProcess {
         [string]$StdErrFile
     )
 
-    $dll = Join-Path (Get-SlotPath $Paths $Slot) 'devops-midterm.dll'
+    $slotPath = Get-SlotPath $Paths $Slot
+    $dll = Join-Path $slotPath 'devops-midterm.dll'
     if (-not (Test-Path $dll)) {
         throw "Slot '$Slot' holds no published application ($dll is missing)."
     }
@@ -252,5 +253,8 @@ function Start-AppProcess {
     $env:RELEASE_VERSION = $Release
     $env:Monitoring__LogPath = $Paths.HealthLog
 
-    Start-Process -FilePath 'dotnet' -ArgumentList @($dll) -PassThru -RedirectStandardOutput $StdOutFile -RedirectStandardError $StdErrFile
+    # -WorkingDirectory matters: ASP.NET Core takes the current directory as its
+    # content root, so without it the app would look for appsettings.json and
+    # wwwroot next to the script instead of inside the slot.
+    Start-Process -FilePath 'dotnet' -ArgumentList @($dll) -WorkingDirectory $slotPath -PassThru -RedirectStandardOutput $StdOutFile -RedirectStandardError $StdErrFile
 }
