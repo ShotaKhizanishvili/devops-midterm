@@ -1,0 +1,50 @@
+@inject devops_midterm.Services.DeploymentInfo Deployment
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] · GradeBook DevOps</title>
+    <script type="importmap"></script>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true"/>
+    <link rel="stylesheet" href="~/devops_midterm.styles.css" asp-append-version="true"/>
+</head>
+<body>
+<header class="app-header">
+    <nav class="container app-nav">
+        <a class="brand" asp-controller="Home" asp-action="Index">
+            <span class="brand-mark">GB</span>
+            <span>
+                <strong>GradeBook</strong>
+                <small>DevOps Pipeline Demo</small>
+            </span>
+        </a>
+        <ul class="app-links">
+            <li><a asp-controller="Home" asp-action="Index">კალკულატორი</a></li>
+            <li><a asp-controller="Home" asp-action="Status">მონიტორინგი</a></li>
+            <li><a href="/health" target="_blank" rel="noopener">/health</a></li>
+        </ul>
+        <div class="slot-badge slot-@Deployment.Slot.ToLowerInvariant()" title="აქტიური blue-green სლოტი და რელიზი">
+            <span class="dot"></span>@Deployment.Slot · @Deployment.Release
+        </div>
+    </nav>
+</header>
+
+<main class="container app-main">
+    @RenderBody()
+</main>
+
+<footer class="app-footer">
+    <div class="container">
+        შუალედური პროექტი · DevOps Pipeline · ASP.NET Core @Environment.Version.ToString(2) ·
+        host <code>@Deployment.Host</code>
+    </div>
+</footer>
+
+<script src="~/lib/jquery/dist/jquery.min.js"></script>
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script src="~/js/site.js" asp-append-version="true"></script>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

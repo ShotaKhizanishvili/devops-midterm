@@ -1,0 +1,12 @@
+2026-11-03T14:07:34Z | UP | 200 | 1097ms | http://localhost:5080/health | post-deploy check release=20261103-140726 slot=blue
+2026-11-03T14:07:40Z | UP | 200 | 24ms | http://localhost:5080/health | slot=blue release=20261103-140726 status=healthy
+2026-11-03T14:07:42Z | UP | 200 | 6ms | http://localhost:5080/health | slot=blue release=20261103-140726 status=healthy
+2026-11-03T14:07:44Z | UP | 200 | 6ms | http://localhost:5080/health | slot=blue release=20261103-140726 status=healthy
+2026-11-03T14:08:05Z | UP | 200 | 1095ms | http://localhost:5080/health | post-deploy check release=20261103-140800 slot=green
+2026-11-03T14:15:53Z | UP | 200 | 1109ms | http://localhost:5080/health | post-rollback check slot=blue release=20261103-140726
+2026-11-03T14:16:07Z | DOWN | 0 | 4132ms | http://localhost:5080/health | Unable to connect to the remote server
+2026-11-03T14:16:13Z | DOWN | 0 | 4087ms | http://localhost:5080/health | Unable to connect to the remote server
+2026-11-03T14:16:15Z | UP | 200 | 1103ms | http://localhost:5080/health | post-rollback check slot=green release=20261103-140800
+2026-11-03T14:16:17Z | UP | 200 | 8ms | http://localhost:5080/health | slot=green release=20261103-140800 status=healthy
+2026-11-03T14:16:19Z | UP | 200 | 6ms | http://localhost:5080/health | slot=green release=20261103-140800 status=healthy
+2026-11-03T14:22:50Z | UP | 200 | 1093ms | http://localhost:5080/health | post-deploy check release=css-fix slot=blue

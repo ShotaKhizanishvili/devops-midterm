@@ -1,0 +1,225 @@
+# ---------------------------------------------------------------------------
+# Three-stage CI/CD pipeline: Build -> Test -> Deploy
+#
+#   Build   restores dependencies and compiles the solution in Release
+#           (warnings are errors), then publishes the app as an artifact.
+#   Test    runs the xunit unit + integration tests against that build.
+#   Deploy  takes the published artifact and runs the real blue-green
+#           deployment scripts, health-checks the result, performs a rollback
+#           drill, and archives the deployment + monitoring logs.
+#
+# Runs automatically on every push to main/dev and on every pull request.
+# The Deploy stage is skipped for pull requests - a PR is verified, not shipped.
+# ---------------------------------------------------------------------------
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  SOLUTION: devops-midterm.sln
+  WEB_PROJECT: devops-midterm/devops-midterm.csproj
+  DOTNET_NOLOGO: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  # =========================================================================
+  # STAGE 1 - BUILD
+  # =========================================================================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.SOLUTION }}
+
+      - name: Compile (Release, warnings as errors)
+        run: dotnet build ${{ env.SOLUTION }} -c Release --no-restore
+
+      - name: Publish web application
+        run: dotnet publish ${{ env.WEB_PROJECT }} -c Release --no-build -o publish
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: publish
+          retention-days: 7
+
+      - name: Build summary
+        run: |
+          echo "### Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Configuration: \`Release\` · SDK: \`$(dotnet --version)\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published size: \`$(du -sh publish | cut -f1)\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # =========================================================================
+  # STAGE 2 - TEST
+  # =========================================================================
+  test:
+    name: Test
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Run unit and integration tests
+        run: >
+          dotnet test ${{ env.SOLUTION }} -c Release
+          --logger "trx;LogFileName=test-results.trx"
+          --logger "console;verbosity=normal"
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults
+          retention-days: 7
+
+      - name: Test summary
+        if: always()
+        run: |
+          trx=$(ls TestResults/*.trx 2>/dev/null | head -1)
+          echo "### Tests" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$trx" ]; then
+            echo "No test result file was produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          counters=$(grep -o '<Counters[^/]*/>' "$trx" | head -1)
+          get() { echo "$counters" | grep -o "$1=\"[0-9]*\"" | grep -o '[0-9]*'; }
+          {
+            echo "| Total | Passed | Failed | Skipped |"
+            echo "|------:|-------:|-------:|--------:|"
+            echo "| $(get total) | $(get passed) | $(get failed) | $(get notExecuted) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # =========================================================================
+  # STAGE 3 - DEPLOY (blue-green + health check + rollback drill)
+  # =========================================================================
+  deploy:
+    name: Deploy
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app
+          path: artifact
+
+      - name: Release number
+        run: echo "RELEASE=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      # First deployment: nothing is live yet, so this fills the "blue" slot.
+      - name: Blue-green deploy (release ${{ github.run_number }}.1)
+        shell: pwsh
+        run: ./scripts/deploy.ps1 -ArtifactPath ./artifact -Release "${{ env.RELEASE }}.1"
+
+      - name: Health check the live deployment
+        shell: pwsh
+        run: ./scripts/health-check.ps1 -Attempts 5 -IntervalSeconds 2
+
+      # Second deployment: goes into the idle "green" slot and switches the
+      # live port over, leaving release .1 on disk as the rollback target.
+      - name: Blue-green deploy (release ${{ github.run_number }}.2)
+        shell: pwsh
+        run: ./scripts/deploy.ps1 -ArtifactPath ./artifact -Release "${{ env.RELEASE }}.2"
+
+      - name: Health check after the slot switch
+        shell: pwsh
+        run: ./scripts/health-check.ps1 -Attempts 3 -IntervalSeconds 2
+
+      # Proves the rollback path works on every pipeline run, not just on paper.
+      - name: Rollback drill (back to the previous release)
+        shell: pwsh
+        run: ./scripts/rollback.ps1 -Reason "pipeline rollback drill"
+
+      - name: Health check after rollback
+        shell: pwsh
+        run: ./scripts/health-check.ps1 -Attempts 3 -IntervalSeconds 2
+
+      - name: Deployment summary
+        if: always()
+        shell: pwsh
+        run: |
+          $summary = $env:GITHUB_STEP_SUMMARY
+          "### Deployment" | Out-File $summary -Append
+          "" | Out-File $summary -Append
+
+          if (Test-Path ./deploy/state.json) {
+            $state = Get-Content ./deploy/state.json -Raw | ConvertFrom-Json
+            "| Live slot | Live release | Rollback target | Port |" | Out-File $summary -Append
+            "|---|---|---|---|" | Out-File $summary -Append
+            "| ``$($state.activeSlot)`` | ``$($state.activeRelease)`` | ``$($state.previousSlot)/$($state.previousRelease)`` | $($state.port) |" | Out-File $summary -Append
+            "" | Out-File $summary -Append
+          }
+
+          if (Test-Path ./deploy/logs/health-check.log) {
+            $lines = Get-Content ./deploy/logs/health-check.log
+            $up = ($lines | Where-Object { $_ -match '\| UP \|' }).Count
+            "Health checks: **$($lines.Count)** · up: **$up** · down: **$($lines.Count - $up)**" | Out-File $summary -Append
+            "" | Out-File $summary -Append
+            "<details><summary>health-check.log</summary>" | Out-File $summary -Append
+            "" | Out-File $summary -Append
+            '```' | Out-File $summary -Append
+            $lines | Out-File $summary -Append
+            '```' | Out-File $summary -Append
+            "</details>" | Out-File $summary -Append
+          }
+
+      - name: Stop the application
+        if: always()
+        shell: pwsh
+        run: ./scripts/stop.ps1
+
+      - name: Upload deployment and monitoring logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-logs
+          path: |
+            deploy/logs
+            deploy/state.json
+          retention-days: 7
