@@ -1,0 +1,155 @@
+@model devops_midterm.Models.TranscriptViewModel
+@{
+    ViewData["Title"] = "ქულების კალკულატორი";
+}
+
+<section class="hero">
+    <h1>სტუდენტის ქულების კალკულატორი</h1>
+    <p>
+        შეიყვანეთ საგნები, კრედიტები და 100-ქულიანი შეფასებები — აპლიკაცია დაითვლის
+        <strong>კრედიტებით შეწონილ GPA-ს</strong> (4.0 სკალა) და ასოითი შეფასებებს.
+        იგივე ლოგიკა დაფარულია იუნიტ ტესტებით და ხელმისაწვდომია
+        <code>POST /api/grades/calculate</code> endpoint-ითაც.
+    </p>
+</section>
+
+<div class="layout-split">
+    <form method="post" asp-controller="Home" asp-action="Index" class="card" id="grade-form">
+        <div class="card-head">
+            <h2>საგნები</h2>
+            <button type="button" class="btn-ghost" id="add-row">+ საგნის დამატება</button>
+        </div>
+
+        <div asp-validation-summary="All" class="alert alert-error validation-summary"></div>
+
+        @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+        {
+            <div class="alert alert-error">@Model.ErrorMessage</div>
+        }
+
+        <table class="grade-table">
+            <thead>
+            <tr>
+                <th>საგანი</th>
+                <th class="num">კრედიტი</th>
+                <th class="num">ქულა (0-100)</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody id="rows">
+            @for (var i = 0; i < Model.Courses.Count; i++)
+            {
+                <tr class="course-row">
+                    <td><input class="input" type="text" name="Courses[@i].Name" value="@Model.Courses[i].Name" placeholder="მაგ. DevOps პრაქტიკა" required/></td>
+                    <td><input class="input num" type="number" name="Courses[@i].Credits" value="@Model.Courses[i].Credits" min="1" max="30" required/></td>
+                    <td><input class="input num" type="number" name="Courses[@i].Score" value="@Model.Courses[i].Score" min="0" max="100" step="0.1" required/></td>
+                    <td><button type="button" class="btn-remove" title="წაშლა">&times;</button></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+
+        <div class="card-foot">
+            <button type="submit" class="btn-primary">დათვლა</button>
+            <span class="hint">კრედიტების ჯამი არ უნდა აღემატებოდეს 60-ს</span>
+        </div>
+    </form>
+
+    <aside class="card result-card">
+        <div class="card-head"><h2>შედეგი</h2></div>
+
+        @if (Model.Result is null)
+        {
+            <div class="empty-state">
+                <p>შეავსეთ ფორმა და დააჭირეთ <strong>„დათვლა"</strong>.</p>
+            </div>
+        }
+        else
+        {
+            var r = Model.Result;
+            <div class="gpa-block @(r.Passed ? "ok" : "fail")">
+                <div class="gpa-value">@r.Gpa.ToString("0.00")</div>
+                <div class="gpa-label">GPA (4.0)</div>
+                <div class="gpa-letter">@r.Letter</div>
+            </div>
+
+            <dl class="stat-grid">
+                <div><dt>შეწონილი საშუალო</dt><dd>@r.AverageScore.ToString("0.##")</dd></div>
+                <div><dt>კრედიტები სულ</dt><dd>@r.TotalCredits</dd></div>
+                <div><dt>ათვისებული</dt><dd>@r.EarnedCredits</dd></div>
+                <div><dt>სტატუსი</dt><dd class="@(r.Passed ? "txt-ok" : "txt-fail")">@(r.Passed ? "ჩაითვალა" : "ვერ ჩაითვალა")</dd></div>
+            </dl>
+
+            <table class="grade-table compact">
+                <thead>
+                <tr><th>საგანი</th><th class="num">კრ.</th><th class="num">ქულა</th><th class="num">ასო</th><th class="num">ქულები</th></tr>
+                </thead>
+                <tbody>
+                @foreach (var course in r.Courses)
+                {
+                    <tr class="@(course.Passed ? "" : "row-fail")">
+                        <td>@course.Name</td>
+                        <td class="num">@course.Credits</td>
+                        <td class="num">@course.Score.ToString("0.##")</td>
+                        <td class="num"><span class="letter letter-@course.Letter.ToLowerInvariant()">@course.Letter</span></td>
+                        <td class="num">@course.GradePoints.ToString("0.0")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </aside>
+</div>
+
+<section class="scale-note">
+    <h3>შეფასების სკალა</h3>
+    <div class="scale-row">
+        <span class="letter letter-a">A</span> 91-100 · 4.0
+        <span class="letter letter-b">B</span> 81-90 · 3.0
+        <span class="letter letter-c">C</span> 71-80 · 2.0
+        <span class="letter letter-d">D</span> 61-70 · 1.0
+        <span class="letter letter-e">E</span> 51-60 · 0.5
+        <span class="letter letter-fx">FX</span> 41-50 · 0.0
+        <span class="letter letter-f">F</span> 0-40 · 0.0
+    </div>
+</section>
+
+@section Scripts {
+    <script>
+        // Dynamic course rows: clone the last row, clear it, then re-index every
+        // input so ASP.NET Core model binding still sees Courses[0..n].
+        (function () {
+            const tbody = document.getElementById('rows');
+
+            function reindex() {
+                tbody.querySelectorAll('tr.course-row').forEach((row, i) => {
+                    row.querySelectorAll('input').forEach(input => {
+                        input.name = input.name.replace(/Courses\[\d+\]/, 'Courses[' + i + ']');
+                    });
+                });
+            }
+
+            document.getElementById('add-row').addEventListener('click', () => {
+                const rows = tbody.querySelectorAll('tr.course-row');
+                const template = rows[rows.length - 1];
+                if (!template) return;
+
+                const clone = template.cloneNode(true);
+                const inputs = clone.querySelectorAll('input');
+                inputs[0].value = '';
+                inputs[1].value = '5';
+                inputs[2].value = '';
+                tbody.appendChild(clone);
+                reindex();
+                inputs[0].focus();
+            });
+
+            tbody.addEventListener('click', event => {
+                if (!event.target.classList.contains('btn-remove')) return;
+                if (tbody.querySelectorAll('tr.course-row').length <= 1) return;
+                event.target.closest('tr').remove();
+                reindex();
+            });
+        })();
+    </script>
+}

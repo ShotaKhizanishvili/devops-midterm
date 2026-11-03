@@ -1,0 +1,129 @@
+@model devops_midterm.Services.HealthSummary
+@{
+    ViewData["Title"] = "მონიტორინგი";
+    var deployment = (DeploymentInfo)ViewData["Deployment"]!;
+    var logPath = (string)ViewData["LogPath"]!;
+    var latest = Model.Latest;
+    var isUp = latest?.IsUp == true;
+    var hasData = Model.TotalChecks > 0;
+}
+
+<section class="hero">
+    <h1>Health Check დეშბორდი</h1>
+    <p>
+        ეს გვერდი კითხულობს <code>scripts/health-check.ps1</code>-ის მიერ შექმნილ ლოგ ფაილს და
+        ვიზუალურად აჩვენებს დადეპლოებული აპლიკაციის ხელმისაწვდომობის ისტორიას.
+    </p>
+</section>
+
+<div class="status-banner @(hasData ? (isUp ? "up" : "down") : "unknown")">
+    <div class="status-icon">@(hasData ? (isUp ? "●" : "▲") : "○")</div>
+    <div>
+        <div class="status-title">
+            @if (!hasData)
+            {
+                <text>მონაცემები არ არის</text>
+            }
+            else if (isUp)
+            {
+                <text>სერვისი ხელმისაწვდომია</text>
+            }
+            else
+            {
+                <text>სერვისი მიუწვდომელია</text>
+            }
+        </div>
+        <div class="status-sub">
+            @if (latest is not null)
+            {
+                <text>ბოლო შემოწმება: @latest.Timestamp.ToString("yyyy-MM-dd HH:mm:ss") UTC · HTTP @latest.HttpStatus · @latest.LatencyMs ms</text>
+            }
+            else
+            {
+                <text>გაუშვით <code>pwsh ./scripts/health-check.ps1</code> ლოგის შესაქმნელად</text>
+            }
+        </div>
+    </div>
+    <div class="status-slot">
+        <span class="k">აქტიური სლოტი</span>
+        <span class="v slot-@deployment.Slot.ToLowerInvariant()">@deployment.Slot</span>
+        <span class="k">რელიზი</span>
+        <span class="v">@deployment.Release</span>
+    </div>
+</div>
+
+<div class="metric-grid">
+    <div class="metric">
+        <div class="metric-value">@Model.UptimePercent.ToString("0.##")%</div>
+        <div class="metric-label">Uptime</div>
+    </div>
+    <div class="metric">
+        <div class="metric-value">@Model.TotalChecks</div>
+        <div class="metric-label">შემოწმება სულ</div>
+    </div>
+    <div class="metric @(Model.DownChecks > 0 ? "warn" : "")">
+        <div class="metric-value">@Model.DownChecks</div>
+        <div class="metric-label">წარუმატებელი</div>
+    </div>
+    <div class="metric @(Model.ConsecutiveFailures > 0 ? "bad" : "")">
+        <div class="metric-value">@Model.ConsecutiveFailures</div>
+        <div class="metric-label">ზედიზედ ჩავარდნა</div>
+    </div>
+    <div class="metric">
+        <div class="metric-value">@Model.AverageLatencyMs.ToString("0.#")<span class="unit">ms</span></div>
+        <div class="metric-label">საშ. პასუხის დრო</div>
+    </div>
+</div>
+
+@if (hasData)
+{
+    <div class="card">
+        <div class="card-head"><h2>ბოლო @Model.Entries.Count შემოწმება</h2></div>
+        <div class="spark">
+            @foreach (var entry in Model.Entries)
+            {
+                var height = Math.Clamp(entry.LatencyMs, 4, 100);
+                <span class="bar @(entry.IsUp ? "ok" : "bad")"
+                      style="height:@(height)%"
+                      title="@entry.Timestamp.ToString("HH:mm:ss") · @entry.Status · HTTP @entry.HttpStatus · @entry.LatencyMs ms"></span>
+            }
+        </div>
+
+        <table class="grade-table compact log-table">
+            <thead>
+            <tr><th>დრო (UTC)</th><th>სტატუსი</th><th class="num">HTTP</th><th class="num">ms</th><th>URL</th><th>შენიშვნა</th></tr>
+            </thead>
+            <tbody>
+            @foreach (var entry in Model.Entries.Reverse())
+            {
+                <tr class="@(entry.IsUp ? "" : "row-fail")">
+                    <td><code>@entry.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</code></td>
+                    <td><span class="pill @(entry.IsUp ? "pill-ok" : "pill-bad")">@entry.Status</span></td>
+                    <td class="num">@entry.HttpStatus</td>
+                    <td class="num">@entry.LatencyMs</td>
+                    <td class="url">@entry.Url</td>
+                    <td class="note">@entry.Note</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="empty-state">
+            <p>ლოგ ფაილი ჯერ ცარიელია ან არ არსებობს.</p>
+            <pre><code>pwsh ./scripts/health-check.ps1 -Url http://localhost:5080/health -Attempts 5</code></pre>
+        </div>
+    </div>
+}
+
+<p class="log-path">ლოგის ფაილი: <code>@logPath</code> · გვერდი ავტომატურად განახლდება 20 წმ-ში</p>
+
+@section Scripts {
+    <script>
+        // Keep the dashboard live without any extra tooling.
+        setTimeout(() => window.location.reload(), 20000);
+    </script>
+}
