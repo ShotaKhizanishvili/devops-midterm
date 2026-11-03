@@ -67,9 +67,36 @@ $smokeUrl = "http://localhost:$SmokePort/health"
 
 Write-DeployLog -Paths $paths -Level INFO -Message "=== deploy start | release=$Release | active=$(if ($activeSlot) { $activeSlot } else { '(none)' }) -> target=$targetSlot ==="
 
+# Staging overwrites the idle slot, which is also the recorded rollback target.
+# If the deployment then aborts, that target no longer exists, so the state file
+# must stop advertising it - otherwise rollback.ps1 would start the broken build.
+function Invoke-AbortedDeploy {
+    param([string]$Message)
+
+    Write-DeployLog -Paths $paths -Level ERROR -Message $Message
+
+    if ($state.previousSlot -eq $targetSlot -and $state.previousRelease) {
+        Write-DeployLog -Paths $paths -Level WARN -Message "slot '$targetSlot' no longer holds release '$($state.previousRelease)' - rollback target cleared"
+    }
+
+    $state.previousSlot = ''
+    $state.previousRelease = ''
+    $state.lastAction = 'deploy-aborted'
+    Save-DeployState -Paths $paths -State $state
+
+    exit 1
+}
+
 # ---------------------------------------------------------------------------
 # 1. Put the new release into the idle slot.
 # ---------------------------------------------------------------------------
+
+# Checked before anything is deleted, so a bad path costs nothing.
+if ($ArtifactPath -and -not (Test-Path (Join-Path $ArtifactPath 'devops-midterm.dll'))) {
+    Write-DeployLog -Paths $paths -Level ERROR -Message "artifact at '$ArtifactPath' contains no devops-midterm.dll - nothing was changed"
+    exit 1
+}
+
 if (Test-Path $targetPath) {
     Get-ChildItem -Path $targetPath -Force | Remove-Item -Recurse -Force
 }
@@ -78,12 +105,6 @@ else {
 }
 
 if ($ArtifactPath) {
-    $artifactDll = Join-Path $ArtifactPath 'devops-midterm.dll'
-    if (-not (Test-Path $artifactDll)) {
-        Write-DeployLog -Paths $paths -Level ERROR -Message "artifact at '$ArtifactPath' contains no devops-midterm.dll"
-        exit 1
-    }
-
     Write-DeployLog -Paths $paths -Level INFO -Message "copying artifact '$ArtifactPath' into slot '$targetSlot'"
     Copy-Item -Path (Join-Path $ArtifactPath '*') -Destination $targetPath -Recurse -Force
 }
@@ -92,8 +113,7 @@ else {
     dotnet publish $ProjectPath -c Release -o $targetPath --nologo | Out-Host
 
     if ($LASTEXITCODE -ne 0) {
-        Write-DeployLog -Paths $paths -Level ERROR -Message "dotnet publish failed with exit code $LASTEXITCODE - live slot untouched"
-        exit 1
+        Invoke-AbortedDeploy -Message "dotnet publish failed with exit code $LASTEXITCODE - live slot untouched"
     }
 }
 
@@ -109,8 +129,7 @@ $smokeResult = Wait-ForHealth -Url $smokeUrl -TimeoutSeconds $HealthTimeoutSecon
 Stop-AppProcess -ProcessId $smokeProcess.Id | Out-Null
 
 if (-not $smokeResult.Up) {
-    Write-DeployLog -Paths $paths -Level ERROR -Message "smoke test FAILED (http=$($smokeResult.HttpStatus), $($smokeResult.Note)) - aborting, '$activeSlot' stays live"
-    exit 1
+    Invoke-AbortedDeploy -Message "smoke test FAILED (http=$($smokeResult.HttpStatus), $($smokeResult.Note)) - aborting, '$activeSlot' stays live"
 }
 
 Write-DeployLog -Paths $paths -Level OK -Message "smoke test passed in $($smokeResult.LatencyMs)ms"
