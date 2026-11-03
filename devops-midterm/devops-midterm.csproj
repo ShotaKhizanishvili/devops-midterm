@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>devops_midterm</RootNamespace>
+        <!-- Fail the CI build on warnings so the build stage is a real gate. -->
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Lets the integration tests reach the top-level Program class. -->
+        <InternalsVisibleTo Include="devops-midterm.Tests"/>
+    </ItemGroup>
+
+</Project>
